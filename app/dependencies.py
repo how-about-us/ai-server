@@ -3,16 +3,16 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 
-from app.clients.google_places import GooglePlacesClient, MockGooglePlacesClient, PlacesProvider
-from app.clients.openai_planner import HeuristicPlanner, OpenAIPlanner, Planner
-from app.core.config import _read_dotenv, Settings, get_settings
+from app.clients.google_places import GooglePlacesClient, PlacesProvider
+from app.clients.openai_planner import OpenAIPlanner, Planner
+from app.core.config import _get_env_value, _read_dotenv, get_settings
 from app.services.orchestrator import OrchestratorService
 
 
 @lru_cache(maxsize=1)
 def _configure_logger() -> logging.Logger:
-    settings = get_settings()
-    logging.basicConfig(level=getattr(logging, settings.ai_log_level.upper(), logging.INFO))
+    log_level = (_get_env_value("AI_LOG_LEVEL", "INFO") or "INFO").upper()
+    logging.basicConfig(level=getattr(logging, log_level, logging.INFO))
     return logging.getLogger("ai-server")
 
 
@@ -23,16 +23,12 @@ def get_logger() -> logging.Logger:
 @lru_cache(maxsize=1)
 def get_planner() -> Planner:
     settings = get_settings()
-    if settings.ai_use_mock_services or not settings.openai_api_key:
-        return HeuristicPlanner()
     return OpenAIPlanner(api_key=settings.openai_api_key, model=settings.openai_model)
 
 
 @lru_cache(maxsize=1)
 def get_places_provider() -> PlacesProvider:
     settings = get_settings()
-    if settings.ai_use_mock_services or not settings.google_maps_api_key:
-        return MockGooglePlacesClient()
     return GooglePlacesClient(
         api_key=settings.google_maps_api_key,
         base_url=settings.google_places_base_url,

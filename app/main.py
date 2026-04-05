@@ -10,7 +10,7 @@ from app.services.orchestrator import OrchestratorService
 app = FastAPI(
     title="Travel AI Server",
     version="0.1.0",
-    description="Standalone FastAPI PoC for travel place recommendations",
+    description="FastAPI AI backend for collaborative travel place recommendations",
 )
 
 
