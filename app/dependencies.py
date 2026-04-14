@@ -3,10 +3,11 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 
-from app.clients.google_places import GooglePlacesClient, PlacesProvider
-from app.clients.openai_planner import OpenAIPlanner, Planner
+from app.clients.google_places import GooglePlacesClient
+from app.clients.openai_travel import OpenAITravelClient
 from app.core.config import _get_env_value, _read_dotenv, get_settings
-from app.services.orchestrator import OrchestratorService
+from app.services.orchestrator import ChatPlanService
+from app.services.summary import SummaryService
 
 
 @lru_cache(maxsize=1)
@@ -21,13 +22,21 @@ def get_logger() -> logging.Logger:
 
 
 @lru_cache(maxsize=1)
-def get_planner() -> Planner:
+def get_openai_client() -> OpenAITravelClient:
     settings = get_settings()
-    return OpenAIPlanner(api_key=settings.openai_api_key, model=settings.openai_model)
+    return OpenAITravelClient(
+        api_key=settings.openai_api_key,
+        model=settings.openai_model,
+    )
 
 
 @lru_cache(maxsize=1)
-def get_places_provider() -> PlacesProvider:
+def get_summary_service() -> SummaryService:
+    return SummaryService(ai_client=get_openai_client())
+
+
+@lru_cache(maxsize=1)
+def get_places_provider() -> GooglePlacesClient:
     settings = get_settings()
     return GooglePlacesClient(
         api_key=settings.google_maps_api_key,
@@ -38,14 +47,19 @@ def get_places_provider() -> PlacesProvider:
 
 
 @lru_cache(maxsize=1)
-def get_orchestrator_service() -> OrchestratorService:
-    return OrchestratorService(planner=get_planner(), places_provider=get_places_provider())
+def get_chat_plan_service() -> ChatPlanService:
+    return ChatPlanService(
+        summary_service=get_summary_service(),
+        ai_client=get_openai_client(),
+        places_provider=get_places_provider(),
+    )
 
 
 def reset_cached_dependencies() -> None:
     _read_dotenv.cache_clear()
     get_settings.cache_clear()
     _configure_logger.cache_clear()
-    get_planner.cache_clear()
+    get_openai_client.cache_clear()
+    get_summary_service.cache_clear()
     get_places_provider.cache_clear()
-    get_orchestrator_service.cache_clear()
+    get_chat_plan_service.cache_clear()

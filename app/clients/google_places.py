@@ -1,18 +1,8 @@
 from __future__ import annotations
 
-from typing import Protocol
-
 import httpx
 
 from app.schemas.planner import PlaceCandidate, SearchRequest
-
-
-class PlacesProvider(Protocol):
-    async def search_places(self, request: SearchRequest) -> list[PlaceCandidate]:
-        ...
-
-    async def get_place_details(self, place_id: str) -> PlaceCandidate | None:
-        ...
 
 
 class GooglePlacesClient:

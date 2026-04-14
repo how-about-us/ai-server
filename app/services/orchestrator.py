@@ -1,60 +1,101 @@
 from __future__ import annotations
 
-from app.clients.google_places import PlacesProvider
-from app.clients.openai_planner import Planner
-from app.schemas.chat import ChatRequest, ChatResponse, Ground, RecommendedPlace
-from app.schemas.planner import PlannerDecision, SearchRequest
+from dataclasses import dataclass
+from typing import Protocol
+
+from app.clients.openai_travel import OpenAITravelClient
+from app.schemas.chat import ChatPlanRequest, ChatPlanResponse, RecommendedPlace, StructuredSummary
+from app.schemas.planner import IntentDecision, PlaceCandidate, SearchRequest
+from app.services.summary import SummaryService
 
 
-class OrchestratorService:
-    def __init__(self, planner: Planner, places_provider: PlacesProvider) -> None:
-        self._planner = planner
-        self._places_provider = places_provider
+class PlacesProvider(Protocol):
+    async def search_places(self, request: SearchRequest) -> list[PlaceCandidate]:
+        ...
 
-    async def handle_chat(self, request: ChatRequest) -> ChatResponse:
-        decision = await self._planner.plan(request)
+    async def get_place_details(self, place_id: str) -> PlaceCandidate | None:
+        ...
 
-        if decision.intent == "unsupported":
-            return ChatResponse(
-                status="unsupported",
-                intent=decision.intent,
-                answer_text=decision.unsupported_reason or "현재 요청은 지원하지 않습니다.",
-                grounds=[Ground(source="planner", detail="지원 범위를 벗어난 요청으로 분류했습니다.")],
+
+@dataclass(slots=True)
+class ChatPlanService:
+    summary_service: SummaryService
+    ai_client: OpenAITravelClient
+    places_provider: PlacesProvider
+
+    async def handle(self, request: ChatPlanRequest) -> ChatPlanResponse:
+        updated_summary = (
+            await self.summary_service.merge_summary(
+                previous_summary=request.chat_context.summary,
+                messages=request.chat_context.messages_since_last_summary,
+            )
+            if request.chat_context.messages_since_last_summary
+            else request.chat_context.summary or StructuredSummary()
+        )
+
+        decision = await self.ai_client.decide_intent(request, updated_summary)
+        if decision.intent == "place_recommendation":
+            return await self._handle_place_recommendation(request, decision, updated_summary)
+
+        answer = await self.ai_client.compose_chat_answer(request, updated_summary, decision.intent)
+        return ChatPlanResponse(
+            intent=decision.intent,
+            answer_text=answer.answer_text,
+            updated_summary=updated_summary,
+        )
+
+    async def _handle_place_recommendation(
+        self,
+        request: ChatPlanRequest,
+        decision: IntentDecision,
+        updated_summary: StructuredSummary,
+    ) -> ChatPlanResponse:
+        destination = decision.destination or request.room_context.destination
+        if not destination:
+            answer = await self.ai_client.compose_chat_answer(
+                request,
+                updated_summary,
+                "travel_general_chat",
+            )
+            return ChatPlanResponse(
+                intent="place_recommendation",
+                answer_text=answer.answer_text,
+                updated_summary=updated_summary,
             )
 
-        if decision.intent == "clarification_needed":
-            return ChatResponse(
-                status="need_clarification",
-                intent=decision.intent,
-                answer_text=decision.clarification_question or "조건을 조금 더 알려주세요.",
-                follow_up_question=decision.clarification_question,
-                grounds=[Ground(source="planner", detail="추천에 필요한 핵심 정보가 부족합니다.")],
-            )
-
-        search_query = decision.search_query or request.user_query
-        candidates = await self._places_provider.search_places(
+        candidates = await self.places_provider.search_places(
             SearchRequest(
-                query=search_query,
-                destination=decision.destination or request.room_context.destination,
+                query=decision.search_query or destination,
+                destination=destination,
                 place_type=decision.place_type,
                 max_results=5,
             )
         )
-
-        detailed_candidates = []
+        detailed_candidates: list[PlaceCandidate] = []
         for candidate in candidates[:3]:
-            detailed = await self._places_provider.get_place_details(candidate.place_id)
+            detailed = await self.places_provider.get_place_details(candidate.place_id)
             detailed_candidates.append(detailed or candidate)
 
-        summary = await self._planner.summarize(request, decision, detailed_candidates)
         if not detailed_candidates:
-            return ChatResponse(
-                status="completed",
-                intent=decision.intent,
-                answer_text=summary.answer_text,
-                follow_up_question="지역이나 카테고리를 더 구체적으로 알려주시면 다시 추천하겠습니다.",
-                grounds=[Ground(source="google_places", detail=detail) for detail in summary.grounds],
+            answer = await self.ai_client.compose_chat_answer(
+                request,
+                updated_summary,
+                "travel_general_chat",
             )
+            return ChatPlanResponse(
+                intent="place_recommendation",
+                answer_text=answer.answer_text,
+                updated_summary=updated_summary,
+            )
+
+        draft = await self.ai_client.compose_place_recommendation(
+            request,
+            updated_summary,
+            detailed_candidates,
+        )
+        reasons = draft.place_reasons[: len(detailed_candidates)]
+        while len(reasons) < len(detailed_candidates):
+            reasons.append("요청한 여행 맥락을 반영해 추천한 후보입니다.")
 
         recommended_places = [
             RecommendedPlace(
@@ -64,25 +105,14 @@ class OrchestratorService:
                 lat=candidate.lat,
                 lng=candidate.lng,
                 primary_type=candidate.primary_type,
-                reason=self._build_reason(candidate, decision),
                 google_maps_uri=candidate.google_maps_uri,
+                reason=reasons[index],
             )
-            for candidate in detailed_candidates
+            for index, candidate in enumerate(detailed_candidates)
         ]
-        grounds = [Ground(source="google_places", detail=detail) for detail in summary.grounds]
-        grounds.append(Ground(source="planner", detail="방 컨텍스트와 사용자 질의를 함께 반영했습니다."))
-        return ChatResponse(
-            status="completed",
-            intent=decision.intent,
-            answer_text=summary.answer_text,
+        return ChatPlanResponse(
+            intent="place_recommendation",
+            answer_text=draft.answer_text,
             recommended_places=recommended_places,
-            grounds=grounds,
+            updated_summary=updated_summary,
         )
-
-    @staticmethod
-    def _build_reason(candidate: object, decision: PlannerDecision) -> str:
-        primary_type = getattr(candidate, "primary_type", None) or "장소"
-        address = getattr(candidate, "address", None) or "주소 정보 없음"
-        if decision.extracted_preferences:
-            return f"{primary_type} 유형이며 {address}에 있습니다. 요청 조건 {', '.join(decision.extracted_preferences)}를 함께 반영했습니다."
-        return f"{primary_type} 유형이며 {address}에 있습니다."

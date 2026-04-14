@@ -5,11 +5,12 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+
 @dataclass(frozen=True)
 class Settings:
-    openai_api_key: str
-    google_maps_api_key: str
     app_name: str = "Travel AI Server"
+    openai_api_key: str = ""
+    google_maps_api_key: str = ""
     openai_model: str = "gpt-5.4-mini"
     google_places_language_code: str = "ko"
     ai_log_level: str = "INFO"
