@@ -11,7 +11,7 @@ class Settings:
     app_name: str = "Travel AI Server"
     openai_api_key: str = ""
     google_maps_api_key: str = ""
-    openai_model: str = "gpt-5.4-mini"
+    openai_model: str = "gpt-5.4-nano"
     google_places_language_code: str = "ko"
     ai_log_level: str = "INFO"
     google_places_base_url: str = "https://places.googleapis.com/v1"
@@ -53,7 +53,7 @@ def get_settings() -> Settings:
     return Settings(
         openai_api_key=_require_env_value("OPENAI_API_KEY"),
         google_maps_api_key=_require_env_value("GOOGLE_MAPS_API_KEY"),
-        openai_model=_get_env_value("OPENAI_MODEL", "gpt-5.4-mini") or "gpt-5.4-mini",
+        openai_model=_get_env_value("OPENAI_MODEL", "gpt-5.4-nano") or "gpt-5.4-nano",
         google_places_language_code=_get_env_value("GOOGLE_PLACES_LANGUAGE_CODE", "ko") or "ko",
         ai_log_level=_get_env_value("AI_LOG_LEVEL", "INFO") or "INFO",
     )

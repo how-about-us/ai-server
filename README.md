@@ -49,7 +49,7 @@ uvicorn app.main:app --reload
 - `OPENAI_API_KEY`
 - `GOOGLE_MAPS_API_KEY`
 - `GOOGLE_PLACES_LANGUAGE_CODE` 기본값 `ko`
-- `OPENAI_MODEL` 기본값 `gpt-5.4-mini`
+- `OPENAI_MODEL` 기본값 `gpt-5.4-nano`
 - `AI_LOG_LEVEL` 기본값 `INFO`
 
 현재는 `OPENAI_API_KEY`, `GOOGLE_MAPS_API_KEY` 둘 다 필수다.

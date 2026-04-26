@@ -32,3 +32,6 @@ dist/
 
 # docs
 docs/
+
+# benchmarks
+benchmarks/
