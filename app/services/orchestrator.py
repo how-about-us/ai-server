@@ -37,7 +37,11 @@ class ChatPlanService:
         if decision.intent == "place_recommendation":
             return await self._handle_place_recommendation(request, decision, updated_summary)
 
-        answer = await self.ai_client.compose_chat_answer(request, updated_summary, decision.intent)
+        answer = await self.ai_client.compose_chat_answer(
+            request,
+            updated_summary,
+            decision.intent,
+        )
         return ChatPlanResponse(
             intent=decision.intent,
             answer_text=answer.answer_text,
