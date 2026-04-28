@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import httpx
 
-from app.schemas.planner import PlaceCandidate, SearchRequest
+from app.schemas.planner import PlaceCandidate, PlaceReview, SearchRequest
 
 
 class GooglePlacesClient:
@@ -59,13 +59,47 @@ class GooglePlacesClient:
         response.raise_for_status()
         return self._to_candidate(response.json())
 
+    async def get_place_details_with_reviews(
+        self,
+        place_id: str,
+        review_limit: int = 5,
+    ) -> PlaceCandidate | None:
+        headers = {
+            "X-Goog-Api-Key": self._api_key,
+            "X-Goog-FieldMask": (
+                "id,displayName,formattedAddress,location,primaryType,"
+                "googleMapsUri,rating,userRatingCount,reviews"
+            ),
+        }
+        response = await self._client.get(
+            f"{self._base_url}/places/{place_id}",
+            headers=headers,
+            params={"languageCode": self._language_code},
+        )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        return self._to_candidate(response.json(), review_limit=review_limit)
+
     async def aclose(self) -> None:
         await self._client.aclose()
 
     @staticmethod
-    def _to_candidate(item: dict) -> PlaceCandidate:
+    def _to_candidate(item: dict, review_limit: int = 0) -> PlaceCandidate:
         location = item.get("location") or {}
         display_name = item.get("displayName") or {}
+        reviews_raw = item.get("reviews") or []
+        reviews: list[PlaceReview] = []
+        if review_limit and isinstance(reviews_raw, list):
+            for review in reviews_raw[:review_limit]:
+                text_obj = review.get("text") or {}
+                reviews.append(
+                    PlaceReview(
+                        rating=review.get("rating"),
+                        relative_time=review.get("relativePublishTimeDescription"),
+                        text=text_obj.get("text"),
+                    )
+                )
         return PlaceCandidate(
             place_id=item.get("id", ""),
             name=display_name.get("text", ""),
@@ -76,4 +110,5 @@ class GooglePlacesClient:
             google_maps_uri=item.get("googleMapsUri"),
             rating=item.get("rating"),
             user_rating_count=item.get("userRatingCount"),
+            reviews=reviews,
         )

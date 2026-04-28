@@ -5,7 +5,13 @@ from typing import Sequence
 from openai import AsyncOpenAI
 
 from app.schemas.chat import ChatPlanRequest, ChatMessage, StructuredSummary
-from app.schemas.planner import ChatAnswerDraft, IntentDecision, PlaceCandidate, PlaceRecommendationDraft
+from app.schemas.planner import (
+    ChatAnswerDraft,
+    IntentDecision,
+    PlaceCandidate,
+    PlaceRerankResult,
+    PlaceRecommendationDraft,
+)
 
 
 class OpenAITravelClient:
@@ -209,6 +215,50 @@ If place_recommendation is chosen, create a concise Google Places search query i
             text_format=PlaceRecommendationDraft,
         )
         return draft.output_parsed
+
+    async def rerank_place_candidates(
+        self,
+        request: ChatPlanRequest,
+        updated_summary: StructuredSummary,
+        candidates: Sequence[PlaceCandidate],
+    ) -> PlaceRerankResult:
+        rerank = await self._client.responses.parse(
+            model=self._model,
+            input=[
+                {
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": (
+                                "You are a travel place ranking assistant for a Korean travel planning service. "
+                                "Rank place candidates based on the user request, chat context, and reviews. "
+                                "Use only provided candidate/review data. Do not invent facts. "
+                                "Prefer places that best match explicit user constraints and preferences. "
+                                "Penalize candidates with weak or conflicting review evidence. "
+                                "Return up to 3 place_ids in ranked order, and a scored list for all candidates."
+                            ),
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": (
+                                f"request_message={self._json(request.request_message.model_dump(mode='json'))}\n"
+                                f"room_context={self._json(request.room_context.model_dump(mode='json'))}\n"
+                                f"updated_summary={self._json(updated_summary.model_dump(mode='json'))}\n"
+                                f"candidates={self._json([candidate.model_dump(mode='json') for candidate in candidates])}"
+                            ),
+                        }
+                    ],
+                },
+            ],
+            text_format=PlaceRerankResult,
+        )
+        return rerank.output_parsed
 
     async def compose_chat_answer(
         self,

@@ -75,12 +75,36 @@ class ChatPlanService:
                 max_results=5,
             )
         )
+        # Fetch details for all 5 candidates first (review-aware if supported by the provider),
+        # then let the LLM rerank to pick Top 3.
         detailed_candidates: list[PlaceCandidate] = []
-        for candidate in candidates[:3]:
-            detailed = await self.places_provider.get_place_details(candidate.place_id)
+        for candidate in candidates[:5]:
+            detailed: PlaceCandidate | None = None
+            get_with_reviews = getattr(self.places_provider, "get_place_details_with_reviews", None)
+            if callable(get_with_reviews):
+                detailed = await get_with_reviews(candidate.place_id, review_limit=5)
+            if detailed is None:
+                detailed = await self.places_provider.get_place_details(candidate.place_id)
             detailed_candidates.append(detailed or candidate)
 
-        if not detailed_candidates:
+        # LLM rerank: if it fails or returns empty, fall back to the first 3 detailed candidates.
+        reranked_candidates: list[PlaceCandidate] = []
+        try:
+            rerank = await self.ai_client.rerank_place_candidates(
+                request=request,
+                updated_summary=updated_summary,
+                candidates=detailed_candidates,
+            )
+            id_to_candidate = {c.place_id: c for c in detailed_candidates}
+            for place_id in rerank.top_place_ids:
+                if place_id in id_to_candidate:
+                    reranked_candidates.append(id_to_candidate[place_id])
+        except Exception:  # pragma: no cover
+            reranked_candidates = []
+
+        selected_candidates = reranked_candidates[:3] if reranked_candidates else detailed_candidates[:3]
+
+        if not selected_candidates:
             answer = await self.ai_client.compose_chat_answer(
                 request,
                 updated_summary,
@@ -92,13 +116,15 @@ class ChatPlanService:
                 updated_summary=updated_summary,
             )
 
+        # Don't feed long reviews into final answer generation (token control).
+        candidates_for_answer = [c.model_copy(update={"reviews": []}) for c in selected_candidates]
         draft = await self.ai_client.compose_place_recommendation(
             request,
             updated_summary,
-            detailed_candidates,
+            candidates_for_answer,
         )
-        reasons = draft.place_reasons[: len(detailed_candidates)]
-        while len(reasons) < len(detailed_candidates):
+        reasons = draft.place_reasons[: len(candidates_for_answer)]
+        while len(reasons) < len(candidates_for_answer):
             reasons.append("요청한 여행 맥락을 반영해 추천한 후보입니다.")
 
         recommended_places = [
@@ -112,7 +138,7 @@ class ChatPlanService:
                 google_maps_uri=candidate.google_maps_uri,
                 reason=reasons[index],
             )
-            for index, candidate in enumerate(detailed_candidates)
+            for index, candidate in enumerate(selected_candidates)
         ]
         return ChatPlanResponse(
             intent="place_recommendation",
