@@ -44,6 +44,21 @@ uvicorn app.main:app --reload
 
 기본 주소는 `http://127.0.0.1:8000` 이고 Swagger는 `/docs` 에서 확인할 수 있다.
 
+## Docker Compose 실행
+
+개발 환경은 `.env`, 운영 환경은 `.env.prod` 파일을 사용한다. 개발 환경 예시는
+`.env.example`, 운영 환경 예시는 `.env.prod.example`를 참고한다.
+
+```bash
+cp .env.example .env
+docker compose -f compose.dev.yaml up --build
+```
+
+```bash
+cp .env.prod.example .env.prod
+docker compose -f compose.prod.yaml up --build -d
+```
+
 ## 환경 변수
 
 - `OPENAI_API_KEY`
