@@ -20,6 +20,11 @@ app = FastAPI(
 )
 
 
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
 @app.post("/v1/ai/context/summaries", response_model=SummaryUpdateResponse)
 async def update_summary(
     request: SummaryUpdateRequest,

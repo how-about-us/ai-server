@@ -56,7 +56,8 @@ docker compose -f compose.dev.yaml up --build
 
 ```bash
 cp .env.prod.example .env.prod
-docker compose -f compose.prod.yaml up --build -d
+docker compose -f compose.prod.yaml pull
+docker compose -f compose.prod.yaml up --wait --wait-timeout 120
 ```
 
 ## 환경 변수
